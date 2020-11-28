@@ -4,6 +4,13 @@ import cv2
 from util import timers
 from gtav import gtav_input
 
+def gamma_correction(image, gamma = 1.0):
+    inv_gamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** inv_gamma) * 255
+		for i in np.arange(0, 256)]).astype("uint8")
+
+    return cv2.LUT(image, table)
+
 def region_of_interest(image, vertices):
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, [ vertices ], 255)
@@ -25,6 +32,12 @@ def process_image(image):
     # convert image to grayscale
     # this way each pixel takes only 8 bits instead of 24
     processed_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # make the algorithm more suitable for night driving by
+    # improving the contrast in the image
+    processed_img = cv2.equalizeHist(processed_img)
+    # slightly reduce the contrast so that the image is not too bright
+    processed_img = gamma_correction(processed_img, 0.7)
     
     # find edges in the image using the Canny algorithm
     processed_img = cv2.Canny(processed_img, threshold1=200, threshold2=300)
