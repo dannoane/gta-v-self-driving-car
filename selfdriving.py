@@ -134,17 +134,30 @@ def process_image(image):
     # this way each pixel takes only 8 bits instead of 24
     processed_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
+    # isolate yellow and white lane lines
+    lower_yellow = np.array([20, 100, 100], dtype='uint8')
+    upper_yellow = np.array([30, 255, 255], dtype='uint8')
+
+    hsv_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2HSV)
+    # leave only the yellow colored items. easier to detect in a hsv image
+    mask_yellow = cv2.inRange(hsv_img, lower_yellow, upper_yellow)
+    # leave only white colored items
+    mask_white = cv2.inRange(processed_img, 200, 255)
+    mask_yellow_white = cv2.bitwise_or(mask_yellow, mask_white)
+    processed_img = cv2.bitwise_and(processed_img, mask_yellow_white)
+
     # make the algorithm more suitable for night driving by
     # improving the contrast in the image
     processed_img = cv2.equalizeHist(processed_img)
     # slightly reduce the contrast so that the image is not too bright
-    processed_img = gamma_correction(processed_img, 0.7)
+    processed_img = gamma_correction(processed_img, 3)
     
+    # blur the image. suppress noise in Canny Edge Detection by averaging out the
+    # pixel values in a neighborhood
+    processed_img = cv2.GaussianBlur(processed_img, ksize=(5, 5), sigmaX=0)
+
     # find edges in the image using the Canny algorithm
     processed_img = cv2.Canny(processed_img, threshold1=200, threshold2=300)
-
-    # blur the image
-    processed_img = cv2.GaussianBlur(processed_img, ksize=(5, 5), sigmaX=0)
 
     # TODO: find better outline for when driving a car in 1st person
     # or switch to 3rd person
@@ -154,8 +167,8 @@ def process_image(image):
     # find line segments in the image
     # returns an array of arrays. each nested array contains the (x, y)
     # coordinates of the ends of the segments found
-    lines = cv2.HoughLinesP(processed_img, 1, np.pi / 180, 180, 
-        minLineLength=100, maxLineGap=5)
+    lines = cv2.HoughLinesP(processed_img, rho=4, theta=np.pi/180, threshold=30, 
+        minLineLength=100, maxLineGap=30)
     draw_lines(processed_img, lines)
 
     l1, l2 = find_lanes(lines)
