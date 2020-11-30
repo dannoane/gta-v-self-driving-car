@@ -4,6 +4,7 @@ from PIL import ImageGrab
 import cv2
 from util import timers
 from gtav import gtav_input
+import time
 
 def gamma_correction(image, gamma = 1.0):
     inv_gamma = 1.0 / gamma
@@ -49,7 +50,7 @@ def average_lane(lane_data):
 
 def find_lanes(lines):
     if lines is None:
-        return None, None
+        return None, None, 0, 0
 
     # find the maxium y value for a lane marker
     # since we cannot assume the horizon will always be at the same point
@@ -116,7 +117,7 @@ def find_lanes(lines):
     top_lanes = sorted(line_counter.items(), key=lambda item: item[1])[::-1][:2]
 
     if len(top_lanes) < 2:
-        return None, None
+        return None, None, 0, 0
 
     lane1_id = top_lanes[0][0]
     lane2_id = top_lanes[1][0]
@@ -124,7 +125,7 @@ def find_lanes(lines):
     l1_x1, l1_y1, l1_x2, l1_y2 = average_lane(final_lanes[lane1_id])
     l2_x1, l2_y1, l2_x2, l2_y2 = average_lane(final_lanes[lane2_id])
 
-    return [l1_x1, l1_y1, l1_x2, l1_y2], [l2_x1, l2_y1, l2_x2, l2_y2]
+    return [l1_x1, l1_y1, l1_x2, l1_y2], [l2_x1, l2_y1, l2_x2, l2_y2], lane1_id, lane2_id
 
 def process_image(image):
     original_img = image
@@ -139,7 +140,7 @@ def process_image(image):
     upper_yellow = np.array([30, 255, 255], dtype='uint8')
 
     hsv_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2HSV)
-    # leave only the yellow colored items. easier to detect in a hsv image
+    # leave only the yellow colored  items. easier to detect in a hsv image
     mask_yellow = cv2.inRange(hsv_img, lower_yellow, upper_yellow)
     # leave only white colored items
     mask_white = cv2.inRange(processed_img, 200, 255)
@@ -171,13 +172,14 @@ def process_image(image):
         minLineLength=100, maxLineGap=30)
     draw_lines(processed_img, lines)
 
-    l1, l2 = find_lanes(lines)
+    l1, l2, m1, m2 = find_lanes(lines)
     draw_lines(original_img, [[l1], [l2]], [0, 255, 0], 30)
 
-    return original_img, processed_img
+    return original_img, processed_img, m1, m2
 
 timer = timers.Timers()
 gameinput = gtav_input.GtaVInput()
+time.sleep(5)
 while (True):
     timer.start('per frame')
     
@@ -187,7 +189,15 @@ while (True):
     printscr_np = np.array(printscr, dtype='uint8')\
         .reshape((printscr.size[1], printscr.size[0], 3))
 
-    original_image, processed_image = process_image(printscr_np)
+    original_image, processed_image, m1, m2 = process_image(printscr_np)
+    if m1 < 0 and m2 < 0:
+        gameinput.steer_right()
+    elif m1 > 0 and m2 > 0:
+        gameinput.steer_left()
+    elif m1 == 0 and m2 == 0:
+        gameinput.move_backwards(release=True)
+    else:
+        gameinput.move_forward(release=True)
 
     timer.end('per frame')
 
