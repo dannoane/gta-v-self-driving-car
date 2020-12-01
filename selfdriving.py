@@ -3,35 +3,9 @@ from statistics import mean
 from PIL import ImageGrab
 import cv2
 from util import timers
+from image_processing.image import Image, ColorMask, ROIMask
 from gtav import gtav_input
 import time
-
-def gamma_correction(image, gamma = 1.0):
-    inv_gamma = 1.0 / gamma
-    table = np.array([((i / 255.0) ** inv_gamma) * 255
-		for i in np.arange(0, 256)]).astype("uint8")
-
-    return cv2.LUT(image, table)
-
-def region_of_interest(image, vertices):
-    mask = np.zeros_like(image)
-    cv2.fillPoly(mask, [ vertices ], 255)
-    masked = cv2.bitwise_and(image, mask)
-
-    return masked
-
-def draw_lines(image, lines, color = [255, 255, 255], thickness = 3):
-    if lines is None:
-        return
-
-    for line in lines:
-        # because line is an array with just one element (another array)
-        coords = line[0]
-        try:
-            cv2.line(image, (coords[0], coords[1]), (coords[2], coords[3]),
-                color=color, thickness=thickness)
-        except Exception:
-            continue
 
 def average_lane(lane_data):
     x1s = []
@@ -127,55 +101,54 @@ def find_lanes(lines):
 
     return [l1_x1, l1_y1, l1_x2, l1_y2], [l2_x1, l2_y1, l2_x2, l2_y2], lane1_id, lane2_id
 
-def process_image(image):
-    original_img = image
-    original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
+def process_image(image: Image):
+    original = image.copy().bgr_to_rgb()
+    grayscale = image.copy().bgr_to_gray()
 
-    # convert image to grayscale
+    # 1. convert image to grayscale
     # this way each pixel takes only 8 bits instead of 24
-    processed_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # isolate yellow and white lane lines
-    lower_yellow = np.array([20, 100, 100], dtype='uint8')
-    upper_yellow = np.array([30, 255, 255], dtype='uint8')
-
-    hsv_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2HSV)
-    # leave only the yellow colored  items. easier to detect in a hsv image
-    mask_yellow = cv2.inRange(hsv_img, lower_yellow, upper_yellow)
-    # leave only white colored items
-    mask_white = cv2.inRange(processed_img, 200, 255)
-    mask_yellow_white = cv2.bitwise_or(mask_yellow, mask_white)
-    processed_img = cv2.bitwise_and(processed_img, mask_yellow_white)
-
-    # make the algorithm more suitable for night driving by
-    # improving the contrast in the image
-    processed_img = cv2.equalizeHist(processed_img)
-    # slightly reduce the contrast so that the image is not too bright
-    processed_img = gamma_correction(processed_img, 3)
-    
-    # blur the image. suppress noise in Canny Edge Detection by averaging out the
+    # and the image can be used with the Canny and Hough Lines algorithms
+    # 2. isolate yellow and white lane lines
+    # 3. make the algorithm more suitable for night driving by
+    # improving the contrast in the image using the histogram equalization
+    # and slightly reduce the contrast after, using gamma correction so that the
+    # image is not too bright
+    # 4. blur the image. suppress noise in Canny Edge Detection by averaging out the
     # pixel values in a neighborhood
-    processed_img = cv2.GaussianBlur(processed_img, ksize=(5, 5), sigmaX=0)
+    # 5. find edges in the image using the Canny algorithm
+    # 6. find line segments in the image using the Hough Lines algorithms
+    # returns an array of arrays. each nested array contains the (x, y)
+    # coordinates of the ends of the segments found
 
-    # find edges in the image using the Canny algorithm
-    processed_img = cv2.Canny(processed_img, threshold1=200, threshold2=300)
+    lower_yellow = np.array([0, 130, 130], dtype='uint8')
+    upper_yellow = np.array([180, 255, 255], dtype='uint8')
+    # leave the yellow and the white colored items
+    color_mask = ColorMask()\
+        .add_color(grayscale.get_image(), [200, 255])\
+        .add_color(original.get_image(), [lower_yellow, upper_yellow])\
+        .build()
 
     # TODO: find better outline for when driving a car in 1st person
     # or switch to 3rd person
-    road_outline = np.array([[10, 500], [10, 300], [300, 200], [500, 200], [800, 300], [800, 500]])
-    processed_img = region_of_interest(processed_img, road_outline)
+    roi_mask = ROIMask([[10, 500], [10, 300], [300, 200], [500, 200], [800, 300], [800, 500]])\
+        .build(grayscale.get_image())
 
-    # find line segments in the image
-    # returns an array of arrays. each nested array contains the (x, y)
-    # coordinates of the ends of the segments found
-    lines = cv2.HoughLinesP(processed_img, rho=4, theta=np.pi/180, threshold=30, 
-        minLineLength=100, maxLineGap=30)
-    draw_lines(processed_img, lines)
+    processed = grayscale\
+        .copy()\
+        .apply_mask(color_mask)\
+        .equalize_hist()\
+        .gamma_correction(0.9)\
+        .canny(threshold1=200, threshold2=300)\
+        .gaussian_blur(kernel_size=(5, 5), sigma_x=0)\
+        .apply_mask(roi_mask)
+
+    lines = processed.hough_lines_p(rho=1, theta=np.pi/180, threshold=180, 
+        min_line_length=20, max_line_gap=15)
 
     l1, l2, m1, m2 = find_lanes(lines)
-    draw_lines(original_img, [[l1], [l2]], [0, 255, 0], 30)
+    original.draw_lines([[l1], [l2]], [0, 255, 0], 20)
 
-    return original_img, processed_img, m1, m2
+    return original, processed, m1, m2
 
 timer = timers.Timers()
 gameinput = gtav_input.GtaVInput()
@@ -185,25 +158,23 @@ while (True):
     
     # grab screen
     printscr = ImageGrab.grab(bbox=(0, 40, 800, 640))
-    # transform to 3d array
-    printscr_np = np.array(printscr, dtype='uint8')\
-        .reshape((printscr.size[1], printscr.size[0], 3))
+    image = Image.from_screen_caputre(printscr)
 
-    original_image, processed_image, m1, m2 = process_image(printscr_np)
+    original_image, processed_image, m1, m2 = process_image(image)
     if m1 < 0 and m2 < 0:
-        gameinput.steer_right()
+        gameinput.steer_right(release=True)
     elif m1 > 0 and m2 > 0:
-        gameinput.steer_left()
+        gameinput.steer_left(release=True)
     elif m1 == 0 and m2 == 0:
-        gameinput.move_backwards(release=True)
+        gameinput.hand_break(release=True)
     else:
-        gameinput.move_forward(release=True)
+        gameinput.move_forward(release=False)
 
     timer.end('per frame')
 
     # display capture
-    # cv2.imshow('window', cv2.cvtColor(printscr_np, cv2.COLOR_BGR2RGB))
-    cv2.imshow('window', original_image)
+    cv2.imshow('window', original_image.get_image())
+    # cv2.imshow('window2', processed_image.get_image())
 
     # wait at least 25ms for a key event
     if cv2.waitKey(25) & 0xFF == ord('q'):
