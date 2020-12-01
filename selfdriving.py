@@ -143,7 +143,7 @@ def process_image(image: Image):
         .apply_mask(roi_mask)
 
     lines = processed.hough_lines_p(rho=1, theta=np.pi/180, threshold=180, 
-        min_line_length=20, max_line_gap=15)
+        min_line_length=100, max_line_gap=5)
 
     l1, l2, m1, m2 = find_lanes(lines)
     original.draw_lines([[l1], [l2]], [0, 255, 0], 20)
@@ -161,14 +161,19 @@ while (True):
     image = Image.from_screen_caputre(printscr)
 
     original_image, processed_image, m1, m2 = process_image(image)
+    if abs(m1) < 0.15:
+        m1 = 0
+    if abs(m2) < 0.15:
+        m2 = 0
     if m1 < 0 and m2 < 0:
         gameinput.steer_right(release=True)
     elif m1 > 0 and m2 > 0:
         gameinput.steer_left(release=True)
     elif m1 == 0 and m2 == 0:
-        gameinput.hand_break(release=True)
+        gameinput.move_forward(release=True)
+        # gameinput.hand_break(release=True)
     else:
-        gameinput.move_forward(release=False)
+        gameinput.move_forward(release=True)
 
     timer.end('per frame')
 

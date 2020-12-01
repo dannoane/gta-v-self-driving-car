@@ -31,12 +31,14 @@ class GtaVInput(game_input.GameInput):
         self._push_to_stack(self.__s_key)
 
     def steer_left(self, release = False):
+        self.release_key(self.__d_key)
         if release:
             self.stop_press()
         self.press_key(self.__a_key)
         self._push_to_stack(self.__a_key)
 
     def steer_right(self, release = False):
+        self.release_key(self.__a_key)
         if release:
             self.stop_press()
         self.press_key(self.__d_key)
