@@ -45,6 +45,10 @@ class Image:
         self.__image = cv2.cvtColor(self.__image, cv2.COLOR_BGR2GRAY)
         return self
 
+    def resize(self, size):
+        self.__image = cv2.resize(self.__image, size)
+        return self
+
     def apply_mask(self, mask):
         self.__image = cv2.bitwise_and(self.__image, mask)
         return self
