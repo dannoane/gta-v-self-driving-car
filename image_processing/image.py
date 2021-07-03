@@ -41,6 +41,10 @@ class Image:
         self.__image = cv2.cvtColor(self.__image, cv2.COLOR_BGR2HSV)
         return self
 
+    def bgr_to_hls(self):
+        self.__image = cv2.cvtColor(self.__image, cv2.COLOR_BGR2HLS)
+        return self
+
     def bgr_to_gray(self):
         self.__image = cv2.cvtColor(self.__image, cv2.COLOR_BGR2GRAY)
         return self

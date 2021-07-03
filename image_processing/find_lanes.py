@@ -20,7 +20,7 @@ def find_lanes(lines):
     if lines is None:
         return None, None, 0, 0
 
-    # find the maxium y value for a lane marker
+    # find the minimum y value for a lane marker
     # since we cannot assume the horizon will always be at the same point
     min_y = 10**100
     max_y = 600 # height of the screen
